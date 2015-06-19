@@ -18,7 +18,7 @@ mlocate rewritten in bash with a text file instead of a database
  * Updating text file takes longer than updating mlocate database (I'm looking into optimizations here)
  * --basename requires regexes either due to a limit of my understanding or a limitation of grep
  * (minor)No sanity checks on filtering e.g. `tlocate --files --or --existing` is redundant but the script allows it.
- * (minor) In a similar vein, no performance sanity checks either e.g. `tlocate --existing --or --links` is more effecient than `tlocate --links --or --existing` (as bash does not evalute an or statement if the first test fails and files are more likely to exist than be links).
+ * (minor) In a similar vein, no performance sanity checks either e.g. `tlocate --existing --or --links` is more efficient than `tlocate --links --or --existing` (as bash does not evaluate an or statement if the first test succeeds and files are more likely to exist than be links).
 
 
 ## Differences in operation between [tm]locate:
