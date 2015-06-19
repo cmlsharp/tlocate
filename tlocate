@@ -195,7 +195,7 @@ checkExistTest=
 TEMP="$(getopt -o b,h,0,x,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs-no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-case,txtpath:,existing,update,all,limit -n "${0##*/}" -- "$@")" || exit 2
 
 helpMsg="Usage: ${0##*/} [OPTION]... [PATTERN]...\n\
-Search for entries in the ${0##*} txt file\n\n\
+Search for entries in the ${0##*/} text file\n\n\
 OPTIONS:\n\
 -A,--all\t\tonly print entries that match all patterns\n\
 -b,--basename\t\tmatch only the base name of path names\n\
