@@ -13,7 +13,7 @@ techoerr(){
 updateTxt(){
     separator="###################################################"
     [[ -n $pruneDirs ]] && \
-        findOptsDirs=$(for dir in "${pruneDirs[@]}"; do [[ -d "$dir" ]] && echo -n " -path '$dir' -o";done) || \
+        findOptsDirs=$(for dir in "${pruneDirs[@]}"; do echo -n " -path '$dir' -o";done) || \
         isEmpty=1
 
     [[ -n $pruneNames ]] && \
@@ -25,7 +25,7 @@ updateTxt(){
         $(for fs in "${pruneFS[@]}"; do \
             mount  | grep "type $fs" | awk '{print $3}';\
         done); do \
-        [[ -d "$badFSDir" ]] && echo -n " -path '$badFSDir' -o";\
+        echo -n " -path '$badFSDir' -o";\
         done | sed 's/ -o$//') || \
         isEmpty=1
 
@@ -40,7 +40,7 @@ updateTxt(){
     (( quiet == 0 )) && techo "Done\n"
     (( showCmd == 0 )) && echo -e "#$date\n$separator$(for file in "${configFiles[@]}"; do [[ -f "$file" ]] && { echo -e "\n#$file\n$separator"; sed '/^$/d' "$file" | grep -vE '^#' | sed 's/^/#/' | grep prune; };done)" | sudo tee "$txtPath" > /dev/null
     (( quiet == 0 )) && techo "Indexing files..."
-    (( showCmd == 1 )) && { echo "$wholeCmd"; return 0; } || eval "$wholeCmd"
+    (( showCmd == 1 )) && echo "$wholeCmd" || eval "$wholeCmd"
     (( quiet == 0 )) && echo "Done."
 }
 
@@ -80,20 +80,24 @@ queryTxt(){
             done | \
             sed 's/|$//' | sed 's/\\$//')' $txtPath" 
 
-    wholeCmd="$grepCmd |  grep -vE '^#' $(if (( doTest == 1 )); then echo -n " | while read path; do $(\
-        if (( customTestCount > 1 )); then\
-            echo -n "{ $(sed 's/ $//' <<<"$testCmd"); }";\
-        else \
-            echo -n "$testCmd";\
-        fi) && echo \"\$path\"; done";fi) $headCmd $nullCmd $countCmd"
+    if (( checkExist == 1 )); then
+        wholeCmd="$grepCmd |  grep -vE '^#'| while read path; do $(\
+            if (( customTestCount > 1 )); then\
+                echo -n "{ $(sed 's/ $//' <<<"$checkExistTest"); }";\
+            else \
+                echo -n "$checkExistTest";\
+            fi) && echo \$path; done $headCmd $nullCmd $countCmd"
 
+    else
+        wholeCmd="$grepCmd  | grep -vE '^#' $headCmd $nullCmd $countCmd"
+    fi
     (( showCmd == 1 )) &&\
-        { echo "$wholeCmd"; return 0; }\
+        { echo "$wholeCmd"; return; }\
         || \
         { [[ -z $(eval "$wholeCmd") ]] && return 1 || eval "$wholeCmd"; }
 
     (( quiet == 0 )) &&\
-        techo "List last updated $(head -n1 $txtPath | sed 's/#//' | tr -s ' ' ' ')\n" 
+        techo "List last updated $(head -n1 $txtPath | sed 's/#//' | tr -s ' ' ' ')\n"
 }
 txtStats(){
     eval "$(grep -E '^#' $txtPath | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
@@ -114,22 +118,24 @@ txtStats(){
 }
 customTest(){
     (( noCustom == 0 )) && findBasename=1 
-    doTest=1 
-    eval "testCmd+='[[ $@ \"\$path\" ]] '"
+    checkExist=1 
+    eval "checkExistTest+='[[ $@ \$path ]] '"
     customTestCount=$(($customTestCount + 1 ))
 }
 checkConflicts(){
     if [[ -n $countCmd && -n $nullCmd ]]; then
         nullCmd=""
     fi
+    #[[ -n $checkExistTest ]] && \
+        #checkExistTest=$(sed -r  's/[|&]{2} *$//' <<<"$checkExistTest")
 
     (( findWholename == 1 )) && findBasename=0
     if ! grep -q -- "-E" <<<"$grepArgs" && (( findBasename == 1 )); then
         techoerr "${0##*/}: --basename requires regexes.\nA possible workaround would be to alter your query by adding a '\' before each character that would be interpreted as a regex (e.g. \()[].?+* etc.)\n"
         exit 1
     fi
-    if [[ -n $testCmd ]] && ! grep -Eq '^(\[{2}( +!)? +-[a-z,A-Z] +"\$path" +\]{2}( +[|&]{2} +)?)+$'  <<<$(sed 's/ $//' <<<"$testCmd"); then
-        techoerr "There seems to be a problem with your filter syntax. You need to add an '--and' or a '--or' between each filter. Please run ${0##*/} -h for more information\n"
+    if [[ -n $checkExistTest ]] && ! grep -Eq '^(\[{2}( +!)? +-[a-z,A-Z] +\$path +\]{2}( +[|&]{2} +)?)+$'  <<<$(sed 's/ $//' <<<"$checkExistTest"); then
+        techoerr "There seems to be a problem with your filter syntax. Please run ${0##*/} -h for correct syntax\n"
         exit 1
     fi
 }
@@ -146,7 +152,7 @@ findWholename=0
 stats=0
 noCustom=0
 customTestCount=0
-doTest=0
+checkExist=0
 findBasename=0
 [[ -t 1 ]] && quiet=0 || quiet=1
 
@@ -154,7 +160,7 @@ grepArgs="-E"
 countCmd=
 nullCmd=
 checkLogOp="&&"
-testCmd=
+checkExistTest=
 TEMP="$(getopt -o b,h,0,x,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs-no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-case,txtpath:,existing,update,all,limit -n "${0##*/}" -- "$@")" || exit 2
 
 helpMsg="Usage: ${0##*/} [OPTION]... [PATTERN]...\n\
@@ -230,8 +236,8 @@ while true; do
        -0|--null)nullCmd="| tr '\n' '\x00'" ;; 
        -b|--basename) findBasename=1;;
        -w|--wholename)findWholename=1;;
-       -o|--or) testCmd+="|| ";;
-       -a|--and) testCmd+="&& ";;
+       -o|--or) checkExistTest+="|| ";;
+       -a|--and) checkExistTest+="&& ";;
        --files)customTest '-f';;
        --no-files) customTest '! -f';;
        --dirs)customTest '-d';;
@@ -263,15 +269,17 @@ while true; do
        --has-setgid) customTest '-g' ;;
        --no-has-setgid) customTest '! -g';;
        --has-setuid) customTest '-u';;
-       --no-has-setuid) customTest '! -u';; 
-       --) shift; break;; esac
+       --no-has-setuid) customTest '! -u';;
+       --) shift; break;;
+   esac
    shift
 done
 checkConflicts
 if (( update == 1 )); then 
-    (( stats == 1 )) && txtStats
     updateTxt
+elif 
+    (( stats == 1 )); then
+    txtStats
 else 
-    queryTxt "$@" || exit
-    (( stats == 1 )) && txtStats || true
+    queryTxt "$@"
 fi
