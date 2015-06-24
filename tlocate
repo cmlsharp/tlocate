@@ -25,7 +25,7 @@ updateTxt(){
         $(for fs in "${pruneFS[@]}"; do \
             mount  | grep "type $fs" | awk '{print $3}';\
         done); do \
-        [[ -d "$badFSDir" ]] && echo -n " -path '$badFSDir' -o";\
+        echo -n " -path '$badFSDir' -o";\
         done | sed 's/ -o$//') || \
         isEmpty=1
 
@@ -264,7 +264,8 @@ while true; do
        --no-has-setgid) customTest '! -g';;
        --has-setuid) customTest '-u';;
        --no-has-setuid) customTest '! -u';; 
-       --) shift; break;; esac
+       --) shift; break;;
+   esac
    shift
 done
 checkConflicts
