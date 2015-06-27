@@ -19,8 +19,8 @@ mlocate rewritten in bash with a text file instead of a database
 ### Cons:
  * WRITTEN IN FREAKING BASH. Considering rewrite in Python. Also considering port to sh for extra portability
  * Updating text file takes longer than updating mlocate database (I'm looking into optimizations here)
- * `--basename` requires regexes either due to a limit of my understanding or a limitation of grep
  * (minor)No sanity checks on filtering e.g. `tlocate --files --or --existing` is redundant but the script allows it.
+ * (minor) No logic sanity checks. e.g. `tlocate --files --and --directories` is accepted (though obviously returns no output).
  * (minor) In a similar vein, no performance sanity checks either e.g. `tlocate --existing --or --links` is more effecient than `tlocate --links --or --existing` (as bash does not evalute an or statement if the first test fails and files are more likely to exist than be links).
 
 
