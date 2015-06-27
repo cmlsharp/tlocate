@@ -153,7 +153,7 @@ txtStats(){
 }
 
 customTest(){
-    findBasename=1
+    #findBasename=1
     doTest=1 
     # Add test to testCmd and reflext this in $customTestCount
     eval "testCmd+='[[ $@ \"\$path\" ]] '"
