@@ -4,85 +4,112 @@
 # Purpose: mlocate written in bash, uses plain text file instead of database for indexing
 #
 #########################################################################################
-techo(){
+techo(){ # Echos message prepended with name of script, interpreting special characters and not printing a newline at the end
     echo -ne "${0##*/}: $@"
 }
-techoerr(){
+techoerr(){ # See above but prints to stderr
     >&2 echo -ne "${0##*/}: $@"
 }
 updateTxt(){
     separator="###################################################"
+    sudoCmd='sudo '
+    # If user is root, don't use sudo
+    (( EUID  == 0 )) && sudoCmd= 
+    # Create find options based upon pruneDirs array
     [[ -n $pruneDirs ]] && \
-        findOptsDirs=$(for dir in "${pruneDirs[@]}"; do [[ -d "$dir" ]] && echo -n " -path '$dir' -o";done) || \
-        isEmpty=1
+        findOptsDirs=$(for dir in "${pruneDirs[@]}"; do [[ -d "$dir" ]] && echo -n " -path '$dir' -o";done) || isEmpty=$(($isEmpty + 1 ))
 
+    # Same but for pruneNames. '*/' preceeds name because it doesn't matter what the parent directories of the pruneName are 
+    #(e.g. /home/user/foo/.git and /home/user/bar/.git would all be pruned if '.git' is in pruneNames
     [[ -n $pruneNames ]] && \
-        findOptsNames=$(for name in "${pruneNames[@]}"; do echo -n " -path '*/${name}' -o";done) || \
-        isEmpty=1
+        findOptsNames=$(for name in "${pruneNames[@]}"; do echo -n " -path '*/${name}' -o";done) ||\
+        isEmpty=$(($isEmpty + 1 ))
 
+    # This checks all of the mounted FSs against the entries in the pruneFS array and adds the offending mountpoints to the list of pruned directories
     [[ -n $pruneFS ]] && \
         findOptsFS=$(for badFSDir in \
-        $(for fs in "${pruneFS[@]}"; do \
-            mount  | grep "type $fs" | awk '{print $3}';\
-        done); do \
-        echo -n " -path '$badFSDir' -o";\
+            $(for fs in "${pruneFS[@]}"; do \
+                mount | grep "type $fs" | awk '{print $3}'; \
+            done); do \
+            echo -n " -path '$badFSDir' -o";\
         done | sed 's/ -o$//') || \
-        isEmpty=1
+        isEmpty=$(($isEmpty + 1 ))
 
-    if (( isEmpty == 0 )); then
-        wholeCmd="sudo find / \( $findOptsDirs $findOptsNames $findOptsFS \) -prune -o -print 2>/dev/null |  sudo tee -a $txtPath >/dev/null"
+    # If none of the prune* variables are defined, don't unclude the prune options in find
+    if (( isEmpty < 3 )); then 
+        wholeCmd="${sudoCmd}find / \( $findOptsDirs $findOptsNames $findOptsFS \) -prune -o -print 2>/dev/null | ${sudoCmd}tee -a $txtFile >/dev/null"
     else 
-        wholeCmd="sudo find / 2>/dev/null | sudo tee -a $txtPath >/dev/null"
+        wholeCmd="${sudoCmd}find / 2>/dev/null | ${sudoCmd}tee -a $txtFile >/dev/null"
         techo "WARNING: No prune options found in configuration file. Indexing whole filesystem\n"
     fi
+    # If $quiet is equal to one, none of the info messages are displayed
+    # Additionally, the $showCmd variable is enabled, sudo won't be called at all and the command will just be echoed (enabled via --pretend)
     (( quiet == 0 )) && techo "Indexing files requires root. Checking for sudo privileges.\n"
-    (( showCmd == 0 )) && { sudo -v || exit 1; }
+    # If user is not root, verify that they have sudo permissions
+    (( showCmd == 0 )) && (( EUID != 0 )) && { sudo -v || exit 1; }  
     (( quiet == 0 )) && techo "Done\n"
-    (( showCmd == 0 )) && echo -e "#$date\n$separator$(for file in "${configFiles[@]}"; do [[ -f "$file" ]] && { echo -e "\n#$file\n$separator"; sed '/^$/d' "$file" | grep -vE '^#' | sed 's/^/#/' | grep prune; };done)" | sudo tee "$txtPath" > /dev/null
+    (( showCmd == 0 )) &&\
+        header=$(echo -e "$date\n$separator$(
+            for file in "${configFiles[@]}"; do 
+                [[ -f "$file" ]] && {\
+                    echo -e "\n#$file\n$separator"; sed '/^$/d' "$file" | grep -vE '^#' | sed 's/^/#/' | grep prune;\
+                };\
+            done)")
+    (( showCmd == 0 )) && eval "${sudoCmd}tee $txtFile <<<\"$header\" &>/dev/null"
     (( quiet == 0 )) && techo "Indexing files..."
     (( showCmd == 1 )) && { echo "$wholeCmd"; return 0; } || eval "$wholeCmd"
     (( quiet == 0 )) && echo "Done."
 }
 
 queryTxt(){
-    (( $# == 0 )) && { techoerr "ERROR: no query for which to search\nRun ${0##*/} --help for more information\n"; return 1;}
-    if ! head -n1 $txtPath | grep -Eq '^#[0-1][0-9]/[0-3][0-9]/[0-9][0-9] +at +[01]?[0-9]:[0-5][0-9] [AP]M$' ; then
-        techoerr "$txtPath doesn't seem to be a valid ${0##*/} text file. To create one, run \`${0##*/} $(\
-            if [[ $txtPath != /etc/${0##*/}.txt ]]; then \
-            echo -n "-t $txtPath";\
+    # Ensure that there are arguments
+    (( $# == 0 )) && { techoerr "ERROR: no query for which to search\nRun ${0##*/} --help for more information\n"; return 1;} 
+    # This is admittedly a crude way to ensure that it is a valid text file. It greps for the regex of the "last updated" line
+    if ! head -n1 $txtFile | grep -Eq '^#[0-1][0-9]/[0-3][0-9]/[0-9][0-9] +at +[01]?[0-9]:[0-5][0-9] [AP]M$' ; then
+        techoerr "$txtFile doesn't seem to be a valid ${0##*/} text file. To create one, run \`${0##*/} $(
+            if [[ $txtFile != /etc/${0##*/}.txt ]]; then \
+            echo -n "--txtfile $txtFile";\ 
             fi\
-            ) -u\`.\nWARNING: This will overwrite the contents of $txtPath\n"
+            ) --update\`.\nWARNING: This will overwrite the contents of $txtFile\n" # This if statements prints out the appropriate update command if -t is supplied
         exit 1 
     fi
 
-    [[ $and == 1 ]] && \
-        grepCmd=$(echo -n "grep $grepArgs '$(\
+    # This is really pretty complex and since it is all really one line, I can't add comments telling what each thing does.
+    # TL;DR: it generates the apropriate grep command based upon the arguments and options
+    [[ $all == 1 ]] && \
+        grepCmd=$(echo -n "grep $grepArgs '$(
             if (( findBasename == 1 )); then\
-                echo -n "*/.*${1}[^/]*$"; \
+                echo -n "$(sed 's/^\^/\//' <<<"$1")[^/]*$"; \
             else \
                 echo -n "$1";\
-            fi)' $txtPath "; \
+            fi)' $txtFile "; \
         shift;\
         for term in "$@"; do\
-            echo -n "| grep $grepArgs '$(\
+            echo -n "| grep $grepArgs '$(
             if (( findBasename == 1 )); then\
-                echo -n "*/.*${term}[^/]*$"; \
+                echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$"; \
             else \
                 echo -n "$term";\
             fi)'";\
         done) || \
         \
-        grepCmd="grep $grepArgs '$(\
+        grepCmd="grep $grepArgs $(
+        (( noRegex == 0 )) && echo -n "'"; \
         for term in "$@"; do \
-            echo -n "$(if (( findBasename == 1 )); then echo -n "*/.*${term}[^/]*$"; else echo -n "$term";fi)$(if ! grep -q --  '-E' <<<"$grepArgs"; then \
-                echo -n '\';\
-            fi)|";\
-            done | \
-            sed 's/|$//' | sed 's/\\$//')' $txtPath" 
+            (( findBasename == 1 )) && term="$(sed 's/^\^/\//' <<< "$term")[^/]*$";\
+            if (( noRegex == 1 )); then\
+                echo -n "-e '$term' "; \
+            else \
+            echo -n "${term}|";\
+            fi; done | \
+            sed 's/|$//' | sed -r 's/ +$//')$( (( noRegex == 0 )) && echo -n "'" ) $txtFile" 
+    # Whew, that was intense
 
-    wholeCmd="$grepCmd |  grep -vE '^#' $(\
+    # This next block here adds the grep command that filters out lines that start with '#' (to avoid matching things generated by this script).
+    # If some test/filter is specified it adds the while loop and if there is more than one, it adds {} around the filters for cleanliness
+    wholeCmd="$grepCmd |  grep -v '^#' $(
         if (( doTest == 1 )); then \
-            echo -n " | while read path; do $(\
+            echo -n " | while read path; do $(
                 if (( customTestCount > 1 )); then\
                     echo -n "{ $(sed 's/ $//' <<<"$testCmd"); }";\
                 else \
@@ -91,24 +118,32 @@ queryTxt(){
             done";\
         fi) $headCmd $nullCmd $countCmd"
 
+    # This bit is pretty obvious. If showCmd equals 1, echo the command, otherwise execute it.
+    # There is a bit of inefficiency here in that it evals the grep command twice which is wasteful.
+    # The first time, it does so to ensure that there is output (otherwise it fails) and the next time in prints it.
+    # This was necessary due to issues I had with capturing the exit code of the grep command
     (( showCmd == 1 )) &&\
         { echo "$wholeCmd"; return 0; }\
         || \
         { [[ -z $(eval "$wholeCmd") ]] && return 1 || eval "$wholeCmd"; }
 
+    # Add that "Last updated" line to the end of the output
     (( quiet == 0 )) &&\
-        techo "List last updated $(head -n1 $txtPath | sed 's/#//' | tr -s ' ' ' ')\n" 
+        techo "List last updated $(head -n1 $txtFile | sed 's/#//')\n" 
 }
 txtStats(){
-    eval "$(grep -E '^#' $txtPath | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
+    eval "$(grep -E '^#' $txtFile | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
 
-    echo "$(tput bold)Text file path:$(tput sgr0) $txtPath"
+    echo "$(tput bold)Text file path:$(tput sgr0) $txtFile"
     echo
-    echo "$(tput bold)Total entries in text file:$(tput sgr0) $(grep -Ev "^#" "$txtPath" | wc -l | awk '{print $1}')"
+    echo "$(tput bold)Total entries in text file:$(tput sgr0) $(grep -Ev "^#" "$txtFile" | wc -l | awk '{print $1}')"
     echo
-    echo "$(tput bold)Text file last updated:$(tput sgr0) $(head -n1 "$txtPath" | sed 's/^#//' | tr -s ' ' ' ')"
+    echo "$(tput bold)Text file last updated:$(tput sgr0) $(head -n1 "$txtFile" | sed 's/^#//')"
     echo
-    echo "$(tput bold)Config file(s):$(tput sgr0) $(for file in "${configFiles[@]}"; do [[ -f "$file" ]] && echo -n "${file}, "; done | sed 's/, $//')"
+    echo "$(tput bold)Config file(s):$(tput sgr0) $(\
+        for file in "${configFiles[@]}"; do \
+            grep -q "#${file}" $txtFile && echo -n "${file}, ";\
+        done | sed 's/, $//')"
     echo
     echo "$(tput bold)Pruned filesystems:$(tput sgr0) ${pruneFS[@]}"
     echo
@@ -116,22 +151,31 @@ txtStats(){
     echo
     echo "$(tput bold)Pruned names:$(tput sgr0) ${pruneNames[@]}"
 }
+
 customTest(){
-    (( noCustom == 0 )) && findBasename=1 
+    findBasename=1
     doTest=1 
+    # Add test to testCmd and reflext this in $customTestCount
     eval "testCmd+='[[ $@ \"\$path\" ]] '"
     customTestCount=$(($customTestCount + 1 ))
 }
+
 checkConflicts(){
+    # This funciton basically exists deal with the user doing stupid things with the options
+    # Really though, if you are going to use the --count option, why use --null?
+    # If this does happen, null is just ignored
     if [[ -n $countCmd && -n $nullCmd ]]; then
         nullCmd=""
     fi
-
+    # Wholename trumps basename
     (( findWholename == 1 )) && findBasename=0
+
+    # This is either due to a limitation in grep or my understanding but I can't get --basename to work without regexes
     if ! grep -q -- "-E" <<<"$grepArgs" && (( findBasename == 1 )); then
         techoerr "${0##*/}: --basename requires regexes.\nA possible workaround would be to alter your query by adding a '\' before each character that would be interpreted as a regex (e.g. \()[].?+* etc.)\n"
         exit 1
     fi
+    # This regex ensures that the syntax goes --filter --and/or --filter 
     if [[ -n $testCmd ]] && ! grep -Eq '^(\[{2}( +!)? +-[a-z,A-Z] +"\$path" +\]{2}( +[|&]{2} +)?)+$'  <<<$(sed 's/ $//' <<<"$testCmd"); then
         techoerr "There seems to be a problem with your filter syntax. You need to add an '--and' or a '--or' between each filter. Please run ${0##*/} -h for more information\n"
         exit 1
@@ -139,16 +183,16 @@ checkConflicts(){
 }
 
 configFiles=( "/etc/${0##*/}.conf" "$HOME/.config/${0##*/}.conf" )
-txtPath=/etc/${0##*/}.txt
-date=$(date "+%D at %l:%M %p")
+txtFile=/etc/${0##*/}.txt
+date=$(date "+#%D at %l:%M %p" | tr -s ' ' ' ')
 
+noRegex=0
 isEmpty=0
-and=0
+all=0
 update=0
 showCmd=0
 findWholename=0
 stats=0
-noCustom=0
 customTestCount=0
 doTest=0
 findBasename=0
@@ -159,7 +203,7 @@ countCmd=
 nullCmd=
 checkLogOp="&&"
 testCmd=
-TEMP="$(getopt -o b,h,0,x,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs,no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-case,txtpath:,existing,update,all,limit -n "${0##*/}" -- "$@")" || exit 2
+TEMP="$(getopt -o b,h,0,x,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs,no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-casetxtfile:,existing,update,all,limit -n "${0##*/}" -- "$@")" || exit 2
 
 helpMsg="Usage: ${0##*/} [OPTION]... [PATTERN]...\n\
 Search for entries in the ${0##*/} text file\n\n\
@@ -167,20 +211,20 @@ OPTIONS:\n\
 -A,--all\t\tonly print entries that match all patterns\n\
 -b,--basename\t\tmatch only the base name of path names\n\
 -c,--count\t\tonly print number of found entries\n\
--t,--txtpath\t\tTXTPATH use TXTPATH instead of default text file (which is $txtPath)\n\
+-t,-txtfile\t\tTXTFILE use TXTFILE instead of default text file (which is $txtFile)\n\
 -e,--existing\t\tonly print entries for currently existing files\n\
 -h,--help\t\tprint this help\n\
 -i,--ignore-case\tignore case distinctions when matching patterns\n\
 -l,--limit\t\tLIMIT limit output (or counting) to LIMIT entries\n\
 -p,--pretend\t\tprint the query or update command that would be run instead of running it\n\
 -0,--null\t\tseparate entries with NUL on output\n\
--S,--statistics\t\tdon't search fo entries, print statistics about the ${0##*/} text file ($txtPath by default)\n\
+-S,--statistics\t\tdon't search fo entries, print statistics about the ${0##*/} text file ($txtFile by default)\n\
 -q,--quiet\t\tsupress \"${0##*/}: \" messages and timestamp when querying (automatically enabled when feeding into a pipe)\n\
 -x,--noregex\t\tinterpret PATTERN literally rather than as a regular expression\n\
 -w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\n\n\
 \
 \
-The following options allow for the filtering of the responses by type or attribute. These options also may cause slowdowns in querys with lots of results. All imply --existing and --basename although the latter can be overriden by -w/--wholename.\n\n\
+The following options allow for the filtering of the responses by type or attribute. These options also may cause slowdowns in querys with lots of results. All of the followinf filters imply --existing\n\n\
 \
 --files, --no-files\t\t\tentry is (not) regular file (includes links)\n\
 --dirs, --no-dirs\t\t\tentry is (not) a directory\n\
@@ -215,7 +259,7 @@ while true; do
         -q|--quiet) quiet=1;;
         -h|--help) echo -e "$helpMsg" | less; exit;;
         -l|-n|--limit) 
-            if [[ $2 =~ ^[0-9]+$ ]]; then
+            if [[ "$2" =~ ^[0-9]+$ ]]; then
                 headCmd="| head -n${2}"
                 shift
             else
@@ -224,12 +268,12 @@ while true; do
            fi 
            ;;
        -c|--count)countCmd="| wc -l";;
-       -A|--all) and=1;;
-       -e|--existing) noCustom=1; customTest '-e';;
-       -t|--txtpath) txtPath="$2";; 
+       -A|--all) all=1;;
+       -e|--existing)  customTest '-e';;
+       -t|--txtfile)txtFile="$2";; 
        -i|--ignore-case) grepArgs+=" -i";;
        -p|--pretend)showCmd=1; quiet=1;;
-       -x|--noregex)grepArgs=$(sed 's/-E//' <<<"$grepArgs");;
+       -x|--noregex)grepArgs=$(sed 's/-E//' <<<"$grepArgs"); grepArgs+=' -F'; noRegex=1;;
        -S|--statistics) stats=1;;
        -0|--null)nullCmd="| tr '\n' '\x00'" ;; 
        -b|--basename) findBasename=1;;
@@ -274,9 +318,12 @@ while true; do
 done
 checkConflicts
 if (( update == 1 )); then 
-    (( stats == 1 )) && txtStats
     updateTxt
-else 
-    queryTxt "$@" || exit
-    (( stats == 1 )) && txtStats || true
+elif (( stats == 1 )) && (( $# == 0 )); then
+    txtStats
+    exit 0
+else
+    queryTxt "$@"
 fi
+
+(( stats == 1 )) && echo -e "--------------------------------------------" && txtStats
