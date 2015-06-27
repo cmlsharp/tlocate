@@ -129,7 +129,7 @@ queryTxt(){
 
     # Add that "Last updated" line to the end of the output
     (( quiet == 0 )) &&\
-        techo "List last updated $(head -n1 $txtFile | sed 's/#//')\n" 
+        techo "List last updated $(head -n1 $txtFile | sed 's/#//')\n"  || true
 }
 txtStats(){
     eval "$(grep -E '^#' $txtFile | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
@@ -318,12 +318,11 @@ while true; do
 done
 checkConflicts
 if (( update == 1 )); then 
-    updateTxt
+    updateTxt && exitCode=$?
 elif (( stats == 1 )) && (( $# == 0 )); then
     txtStats
     exit 0
 else
-    queryTxt "$@"
+    queryTxt "$@" && exitCode=$?
 fi
-
-(( stats == 1 )) && echo -e "--------------------------------------------" && txtStats
+(( stats == 1 )) && { echo -e "--------------------------------------------"; txtStats; } || exit $exitCode
