@@ -218,7 +218,7 @@ OPTIONS:\n\
 -l,--limit\t\tLIMIT limit output (or counting) to LIMIT entries\n\
 -p,--pretend\t\tprint the query or update command that would be run instead of running it\n\
 -0,--null\t\tseparate entries with NUL on output\n\
--S,--statistics\t\tdon't search fo entries, print statistics about the ${0##*/} text file ($txtFile by default)\n\
+-S,--statistics\t\tprint statistics about the ${0##*/} text file ($txtFile by default)\n\
 -q,--quiet\t\tsupress \"${0##*/}: \" messages and timestamp when querying (automatically enabled when feeding into a pipe)\n\
 -x,--noregex\t\tinterpret PATTERN literally rather than as a regular expression\n\
 -w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\n\n\
