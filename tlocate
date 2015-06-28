@@ -79,7 +79,7 @@ queryTxt(){
     [[ $all == 1 ]] && \
         grepCmd=$(echo -n "grep $grepArgs '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
-                echo -n "$(printf '%q' "$1")[^/]*$";\
+                echo -n "$(printf '%q' "$1" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
                 echo -n "$(sed 's/^\^/\//' <<<"$1")[^/]*$"; \
             else \
@@ -89,7 +89,7 @@ queryTxt(){
         for term in "$@"; do\
             echo -n "| grep $grepArgs '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
-                echo -n "$(printf '%q' "$term")[^/]*$";\
+                echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
                 echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$"; \
             else \
@@ -101,7 +101,7 @@ queryTxt(){
             (( findBasename != 0 && noRegex != 1 )) && echo -n "'"; \
             for term in "$@"; do \
                 if (( findBasename == 1 && noRegex == 1 )); then\
-                   echo -n "$(printf '%q' "$term")[^/]*$|";\
+                   echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$|";\
                 elif (( findBasename == 1 && noRegex == 0 )); then\
                    echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$|";\
                 elif (( findBasename == 0 && noRegex == 1 )); then\
