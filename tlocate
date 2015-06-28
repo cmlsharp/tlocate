@@ -121,8 +121,7 @@ queryTxt(){
                     echo -n "{ $(sed 's/ $//' <<<"$testCmd"); }";\
                 else \
                     echo -n "$testCmd";\
-                fi) && echo \"\$path\";\
-            done";\
+                fi) && echo \"\$path\"; done";\
         fi) $headCmd $nullCmd $countCmd"
 
     # This bit is pretty obvious. If showCmd equals 1, echo the command, otherwise execute it.
