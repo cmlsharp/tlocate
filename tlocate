@@ -98,7 +98,7 @@ queryTxt(){
         done) || \
         \
         grepCmd="grep $grepArgs $(
-            (( findBasename != 0 || noRegex != 1 )) && echo -n "'"; \
+            (( findBasename != 0  || noRegex != 1 )) && echo -n "'"; \
             for term in "$@"; do \
                 if (( findBasename == 1 && noRegex == 1 )); then\
                    echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$|";\
@@ -139,7 +139,7 @@ queryTxt(){
         techo "List last updated $(head -n1 $txtFile | sed 's/#//')\n"  || true
 }
 txtStats(){
-    eval "$(grep -E '^#' $txtFile | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
+    eval "$(grep '^#' $txtFile | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
 
     echo "$(tput bold)Text file path:$(tput sgr0) $txtFile"
     echo
@@ -188,11 +188,11 @@ checkConflicts(){
         exit 1
     fi
     if (( noRegex == 1 )) && (( findBasename != 1 )); then
-        grepArgs=$(sed 's/-E//' <<<"$grepArgs")
+        grepArgs=$(sed 's/-P//' <<<"$grepArgs")
         grepArgs+='-F'
     elif
         (( noRegex == 1 )) && (( findBasename == 1 )); then
-        (( showCmd == 1 )) && techo "-E is being passed to grep in the below command because finding the basename requires it, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
+        (( showCmd == 1 )) && techo "-P is being passed to grep in the below command because finding the basename requires it, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
     fi
 
 }
@@ -212,7 +212,7 @@ doTest=0
 findBasename=0
 [[ -t 1 ]] && quiet=0 || quiet=1
 
-grepArgs="-E"
+grepArgs="-P"
 countCmd=
 nullCmd=
 checkLogOp="&&"
@@ -235,10 +235,11 @@ OPTIONS:\n\
 -S,--statistics\t\tprint statistics about the ${0##*/} text file ($txtFile by default)\n\
 -q,--quiet\t\tsupress \"${0##*/}: \" messages and timestamp when querying (automatically enabled when feeding into a pipe)\n\
 -x,--noregex\t\tinterpret PATTERN literally rather than as a regular expression\n\
--w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\n\n\
+-w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\n\
+NOTE: Perl regular expressions are used by default\n\n\n\
 \
 \
-The following options allow for the filtering of the responses by type or attribute. These options also may cause slowdowns in querys with lots of results. All of the followinf filters imply --existing\n\n\
+The following options allow for the filtering of the responses by type or attribute. These options also may cause slowdowns in querys with lots of results. All of the following filters imply --existing\n\n\
 \
 --files, --no-files\t\t\tentry is (not) regular file (includes links)\n\
 --dirs, --no-dirs\t\t\tentry is (not) a directory\n\
