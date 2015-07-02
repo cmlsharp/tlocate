@@ -77,7 +77,7 @@ queryTxt(){
     # This is really pretty complex and since it is all really one line, I can't add comments telling what each thing does.
     # TL;DR: it generates the apropriate grep command based upon the arguments and options
     [[ $all == 1 ]] && \
-        grepCmd=$(echo -n "grep $grepArgs '$(
+        grepCmd=$(echo -n "grep $grepArgs -- '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
                 echo -n "$(printf '%q' "$1" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
@@ -87,7 +87,7 @@ queryTxt(){
             fi)' $txtFile "; \
         shift;\
         for term in "$@"; do\
-            echo -n "| grep $grepArgs '$(
+            echo -n "| grep $grepArgs -- '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
                 echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
@@ -98,14 +98,14 @@ queryTxt(){
         done) || \
         \
         grepCmd="grep $grepArgs $(
-            (( findBasename != 0  || noRegex != 1 )) && echo -n "'"; \
+            (( findBasename != 0  || noRegex != 1 )) && echo -n "-- '"; \
             for term in "$@"; do \
                 if (( findBasename == 1 && noRegex == 1 )); then\
-                   echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$|";\
+                   echo -n " $(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$|";\
                 elif (( findBasename == 1 && noRegex == 0 )); then\
                    echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$|";\
                 elif (( findBasename == 0 && noRegex == 1 )); then\
-                    echo -n "-e '$term' "; \
+                    echo -n "-e '$(sed 's/^-/\\-/' <<<"$term")' "; \
                 elif (( findBasename == 0 && noRegex == 0 )); then\
                     echo -n "${term}|";\
                 fi; done | \
