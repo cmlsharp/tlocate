@@ -68,7 +68,7 @@ queryTxt(){
     if ! head -n1 $txtFile | grep -Eq '^#[0-1][0-9]/[0-3][0-9]/[0-9][0-9] +at +[01]?[0-9]:[0-5][0-9] [AP]M$' ; then
         techoerr "$txtFile doesn't seem to be a valid ${0##*/} text file. To create one, run \`${0##*/} $(
             if [[ $txtFile != /etc/${0##*/}.txt ]]; then \
-            echo -n "--txtfile $txtFile";\ 
+            echo -n "--txtfile $txtFile";\
             fi\
             ) --update\`.\nWARNING: This will overwrite the contents of $txtFile\n" # This if statements prints out the appropriate update command if -t is supplied
         exit 1 
