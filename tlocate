@@ -191,7 +191,7 @@ checkConflicts(){
         grepArgs+='-F'
     elif
         (( noRegex == 1 )) && (( findBasename == 1 )); then
-        (( showCmd == 1 )) && techo "-P is being passed to grep in the below command because finding the basename requires it, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
+        (( showCmd == 1 )) && techo "-P is being passed to grep in the below command because finding the basename requires regexes, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
     fi
 
 }
@@ -337,6 +337,7 @@ elif (( stats == 1 )) && (( $# == 0 )); then
     txtStats
     exit 0
 else
+    (( stats == 1 )) && quiet=1
     queryTxt "$@" && exitCode=$?
 fi
-(( stats == 1 )) && { echo -e "--------------------------------------------"; txtStats; } || exit $exitCode
+(( stats == 1 )) && { printf -- "-%.0s" $(seq 1 $(tput cols))};echo; txtStats; } || exit $exitCode
