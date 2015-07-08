@@ -195,7 +195,7 @@ checkConflicts(){
     fi
 
 }
-configFiles=( "/etc/${0##*/}.conf" "$HOME/.config/${0##*/}.conf" )
+configFiles=/etc/${0##*/}.conf
 txtFile=/etc/${0##*/}.txt
 date=$(date "+#%D at %l:%M %p" | tr -s ' ' ' ')
 
