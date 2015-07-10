@@ -58,6 +58,14 @@ updateTxt(){
     (( showCmd == 0 )) && eval "${sudoCmd}tee $txtFile <<<\"$header\" &>/dev/null"
     (( quiet == 0 )) && techo "Indexing files..."
     (( showCmd == 1 )) && { echo "$wholeCmd"; return 0; } || eval "$wholeCmd"
+    if type setfattr > /dev/null; then
+        eval "${sudoCmd}setfattr -n user.tlocate.checksum -v '$(shasum -a $shaAlgorithm "$txtFile" | awk '{print $1}')' $txtFile"
+        eval "${sudoCmd}setfattr -n user.tlocate.checksum.sha_algorithm -v '$shaAlgorithm' $txtFile"
+    else
+        eval "shasum -a $shaAlgorithm '$txtFile' | awk '{print $1}' | ${sudoCmd}tee '$txtFileChecksumPath'"
+        eval "echo $shaAlgorithm | ${sudoCmd}tee -a '$txtFileChecksumPath'"
+    fi
+
     (( quiet == 0 )) && echo "Done."
 }
 
@@ -65,21 +73,13 @@ queryTxt(){
     # Ensure that there are arguments
     (( $# == 0 )) && { techoerr "ERROR: no query for which to search\nRun ${0##*/} --help for more information\n"; return 1;} 
     # This is admittedly a crude way to ensure that it is a valid text file. It greps for the regex of the "last updated" line
-    if ! head -n1 $txtFile | grep -Eq '^#[0-1][0-9]/[0-3][0-9]/[0-9][0-9] +at +[01]?[0-9]:[0-5][0-9] [AP]M$' ; then
-        techoerr "$txtFile doesn't seem to be a valid ${0##*/} text file. To create one, run \`${0##*/} $(
-            if [[ $txtFile != /etc/${0##*/}.txt ]]; then \
-            echo -n "--txtfile $txtFile";\
-            fi\
-            ) --update\`.\nWARNING: This will overwrite the contents of $txtFile\n" # This if statements prints out the appropriate update command if -t is supplied
-        exit 1 
-    fi
 
     # This is really pretty complex and since it is all really one line, I can't add comments telling what each thing does.
     # TL;DR: it generates the apropriate grep command based upon the arguments and options
     [[ $all == 1 ]] && \
         grepCmd=$(echo -n "grep $grepArgs -- '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
-                echo -n "$(printf '%q' "$1" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
+                echo -n "$(printf '%q' "$1" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g' | sed 's/\\</</' | sed 's/\\>/>/')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
                 echo -n "$(sed 's/^\^/\//' <<<"$1")[^/]*$"; \
             else \
@@ -89,7 +89,7 @@ queryTxt(){
         for term in "$@"; do\
             echo -n "| grep $grepArgs -- '$(
             if (( findBasename == 1 && noRegex == 1 )); then\
-                echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$";\
+                echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g' | sed 's/\\</</' | sed 's/\\>/>/')[^/]*$";\
             elif (( findBasename == 1 && noRegex == 0 )); then\
                 echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$"; \
             else \
@@ -101,7 +101,7 @@ queryTxt(){
             (( findBasename != 0  || noRegex != 1 )) && echo -n "-- '"; \
             for term in "$@"; do \
                 if (( findBasename == 1 && noRegex == 1 )); then\
-                   echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g')[^/]*$|";\
+                   echo -n "$(printf '%q' "$term" | sed 's/\+/\\\+/g' | sed 's/\./\\\./g' | sed 's/\\</</' | sed 's/\\>/>/')[^/]*$|";\
                 elif (( findBasename == 1 && noRegex == 0 )); then\
                    echo -n "$(sed 's/^\^/\//' <<<"$term")[^/]*$|";\
                 elif (( findBasename == 0 && noRegex == 1 )); then\
@@ -137,12 +137,18 @@ queryTxt(){
     (( quiet == 0 )) &&\
         techo "List last updated $(head -n1 $txtFile | sed 's/#//')\n"  || true
 }
+
 txtStats(){
+    unset pruneFS
+    unset pruneDirs
+    unset pruneNames
     eval "$(grep '^#' $txtFile | sed 's/^#//' | grep -E "^prune(FS|Names|Dirs)=\(")"
 
     echo "$(tput bold)Text file path:$(tput sgr0) $txtFile"
     echo
     echo "$(tput bold)Total entries in text file:$(tput sgr0) $(grep -Ev "^#" "$txtFile" | wc -l | awk '{print $1}')"
+    echo
+    echo "$(tput bold)Disk space used by text file:$(tput sgr0) $(du --block-size=1 $txtFile | awk '{print $1}') bytes ($(du -h $txtFile | awk '{print $1}'))"
     echo
     echo "$(tput bold)Text file last updated:$(tput sgr0) $(head -n1 "$txtFile" | sed 's/^#//')"
     echo
@@ -156,6 +162,19 @@ txtStats(){
     echo "$(tput bold)Pruned directories:$(tput sgr0) ${pruneDirs[@]}"
     echo
     echo "$(tput bold)Pruned names:$(tput sgr0) ${pruneNames[@]}"
+    echo
+    echo "$(tput bold)Checksum (SHA$shaAlgorithm):$(tput sgr0) $(shasum -a $shaAlgorithm "$txtFile" | awk '{print $1}')"
+    echo
+    echo "$(tput bold)Expected checksum (SHA$txtFileChecksumType):$(tput sgr0) $txtFileChecksum"
+    echo
+    echo -n "$(tput bold)Verification status:$(tput sgr0)"
+    if (( noChecksum == 1 )); then
+        echo " SKIPPED"
+    elif (( checksumsMatch == 1 )); then
+        echo -e " \e[32mVERIFIED\e[0m"
+    else
+        echo -e " \e[31mNOT VERIFIED\e[0m"
+    fi
 }
 
 customTest(){
@@ -166,7 +185,7 @@ customTest(){
     customTestCount=$(($customTestCount + 1 ))
 }
 
-checkConflicts(){
+sanityChecks(){
     # This funciton basically exists deal with the user doing stupid things with the options
     # Really though, if you are going to use the --count option, why use --null?
     # If this does happen, null is just ignored
@@ -176,28 +195,61 @@ checkConflicts(){
     # Wholename trumps basename
     (( findWholename == 1 )) && findBasename=0
 
-    # This is either due to a limitation in grep or my understanding but I can't get --basename to work without regexes
-    #if ! grep -q -- "-E" <<<"$grepArgs" && (( findBasename == 1 )); then
-        #techoerr "${0##*/}: --basename requires regexes.\nA possible workaround would be to alter your query by adding a '\' before each character that would be interpreted as a regex (e.g. \()[].?+* etc.)\n"
-        #exit 1
-    #fi
     # This regex ensures that the syntax goes --filter --and/or --filter 
     if [[ -n $testCmd ]] && ! grep -Eq '^(\[{2}( +!)? +-[a-z,A-Z] +"\$path" +\]{2}( +[|&]{2} +)?)+$'  <<<$(sed 's/ $//' <<<"$testCmd"); then
         techoerr "There seems to be a problem with your filter syntax. You need to add an '--and' or a '--or' between each filter. Please run ${0##*/} -h for more information\n"
         exit 1
     fi
+
     if (( noRegex == 1 )) && (( findBasename != 1 )); then
-        grepArgs=$(sed 's/-P//' <<<"$grepArgs")
+        grepArgs=$(sed 's/-E//' <<<"$grepArgs")
         grepArgs+='-F'
     elif
         (( noRegex == 1 )) && (( findBasename == 1 )); then
-        (( showCmd == 1 )) && techo "-P is being passed to grep in the below command because finding the basename requires regexes, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
+        (( showCmd == 1 )) && techo "-E is being passed to grep in the below command because finding the basename requires regexes, however, if there were any regex characters in your string, you will notice that they have been escaped.\n\n"
+    fi
+    if ! [[ -f "$txtFile" ]] && (( update == 0 )); then
+        techoerr "File $txtFile does not exist\n"
+        exit 1 
+    fi
+}
+
+getChecksum(){
+    if type setfattr > /dev/null; then
+        txtFileChecksum=$(getfattr -n user.tlocate.checksum --only-values $txtFile 2>/dev/null; echo )
+        txtFileChecksumType=$(getfattr -n user.tlocate.checksum.sha_algorithm --only-values $txtFile 2>/dev/null; echo)
+    else
+        txtFileChecksum=$(head -n1 "$txtFileChecksumPath" 2>/dev/null)
+        txtFileChecksumType=$(head -n2 "$txtFileChecksumPath" 2>/dev/null | tail -n1)
+    fi
+}
+
+validateTxtFile(){
+    if [[ "$(shasum -a $shaAlgorithm "$txtFile" | awk '{print $1}')" == "$txtFileChecksum" ]] || (( noChecksum == 1 )); then
+        checksumsMatch=1
+    else
+        [[ -n $txtFileChecksum ]] && validateMsg=" checksum"
     fi
 
+    if head -n1 $txtFile | grep -Eq '^#[0-1][0-9]/[0-3][0-9]/[0-9][0-9] +at +[01]?[0-9]:[0-5][0-9] [AP]M$'; then
+        isValid=1
+    fi
+    if (( update == 0 )) && (( isValid == 0 || checksumsMatch == 0 )); then
+        techoerr "$txtFile${validateMsg} failed verification. To fix this, execute \`${0##*/} $(
+            if [[ $txtFile != /etc/${0##*/}.txt ]]; then \
+            echo -n "--txtfile $txtFile";\
+            fi\
+            ) --update\`.\nWARNING: This will overwrite the contents of $txtFile\n" # This if statements prints out the appropriate update command if -t is supplied
+        return 1 
+    else
+        return 0
+    fi
 }
-configFiles=/etc/${0##*/}.conf
-txtFile=/etc/${0##*/}.txt
-date=$(date "+#%D at %l:%M %p" | tr -s ' ' ' ')
+
+configFiles="/etc/${0##*/}.conf"
+txtFile="/etc/${0##*/}.txt"
+txtFileChecksumPath="/etc/.${0##*/}.chksum"
+date="$(date "+#%D at %l:%M %p" | tr -s ' ' ' ')"
 
 noRegex=0
 isEmpty=0
@@ -205,18 +257,23 @@ all=0
 update=0
 showCmd=0
 findWholename=0
+isValid=0
 stats=0
 customTestCount=0
+noChecksum=0
 doTest=0
+checksumsMatch=0
+shaAlgorithm='1'
 findBasename=0
 [[ -t 1 ]] && quiet=0 || quiet=1
 
-grepArgs="-P"
+grepArgs="-E"
 countCmd=
 nullCmd=
+txtFileChecksum=
 checkLogOp="&&"
 testCmd=
-TEMP="$(getopt -o b,h,0,x,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs,no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-casetxtfile:,existing,update,all,limit -n "${0##*/}" -- "$@")" || exit 2
+TEMP="$(getopt -o b,h,0,n,i,w,o,t:,p,A,e,u,c,S,q,a,n,l: -l help,and,or,wholename,files,dirs,links,files-zero,files-nonzero,has-read,has-write,has-execute,char-devs,block-devs,sockets,pipes,user-owned,group-owned,has-setgid,has-setuid,has-sticky,no-files,no-dirs,no-links,no-has-read,no-has-write,no-has-execute,no-char-devs,no-block-devs,no-sockets,no-user-owned,no-group-owned,no-has-sticky,no-pipes,no-has-setgid,no-has-setuid,statistics,basename,pretend,null,quiet,noregex,count,ignore-casetxtfile:,existing,update,all,limit,nochecksum -n "${0##*/}" -- "$@")" || exit 2
 
 helpMsg="Usage: ${0##*/} [OPTION]... [PATTERN]...\n\
 Search for entries in the ${0##*/} text file\n\n\
@@ -229,13 +286,13 @@ OPTIONS:\n\
 -h,--help\t\tprint this help\n\
 -i,--ignore-case\tignore case distinctions when matching patterns\n\
 -l,--limit\t\tLIMIT limit output (or counting) to LIMIT entries\n\
+-n,--noregex\t\tinterpret PATTERN literally rather than as a regular expression\n\
 -p,--pretend\t\tprint the query or update command that would be run instead of running it\n\
 -0,--null\t\tseparate entries with NUL on output\n\
 -S,--statistics\t\tprint statistics about the ${0##*/} text file ($txtFile by default)\n\
 -q,--quiet\t\tsupress \"${0##*/}: \" messages and timestamp when querying (automatically enabled when feeding into a pipe)\n\
--x,--noregex\t\tinterpret PATTERN literally rather than as a regular expression\n\
--w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\n\
-NOTE: Perl regular expressions are used by default\n\n\n\
+-w, --wholename\t\tmatch whole path name (default). Overrides --basename\n\
+--nochecksum\t\tdo not verify checksum of TXTFILE\n\
 \
 \
 The following options allow for the filtering of the responses by type or attribute. These options also may cause slowdowns in querys with lots of results. All of the following filters imply --existing\n\n\
@@ -265,6 +322,7 @@ for i in "${configFiles[@]}"; do
     [[ -f "$i" ]] && source "$i"
 done
     
+(( $# == 0 )) && { techoerr "ERROR: no query for which to search\nRun ${0##*/} --help for more information\n"; exit 1;} 
 
 eval set -- "$TEMP"
 while true; do
@@ -272,7 +330,7 @@ while true; do
         -u|--update) update=1;;
         -q|--quiet) quiet=1;;
         -h|--help) echo -e "$helpMsg" | less; exit;;
-        -l|-n|--limit) 
+        -l|--limit) 
             if [[ "$2" =~ ^[0-9]+$ ]]; then
                 headCmd=" | head -n${2}"
                 shift
@@ -287,13 +345,14 @@ while true; do
        -t|--txtfile)txtFile="$2";; 
        -i|--ignore-case) grepArgs+=" -i";;
        -p|--pretend)showCmd=1; quiet=1;;
-       -x|--noregex) noRegex=1;;
+       -n|--noregex) noRegex=1;;
        -S|--statistics) stats=1;;
        -0|--null)nullCmd=" | tr '\n' '\x00'" ;; 
        -b|--basename) findBasename=1;;
        -w|--wholename)findWholename=1;;
        -o|--or) testCmd+="|| ";;
        -a|--and) testCmd+="&& ";;
+       --nochecksum) noChecksum=1 ;; 
        --files)customTest '-f';;
        --no-files) customTest '! -f';;
        --dirs)customTest '-d';;
@@ -330,14 +389,22 @@ while true; do
    esac
    shift
 done
-checkConflicts
+
+sanityChecks
+if [[ -f "$txtFile" ]]; then
+    getChecksum
+    validateTxtFile
+fi
+
 if (( update == 1 )); then 
-    updateTxt && exitCode=$?
+    updateTxt; exitCode=$?
+    (( stats == 1 )) && getChecksum
 elif (( stats == 1 )) && (( $# == 0 )); then
     txtStats
     exit 0
 else
     (( stats == 1 )) && quiet=1
-    queryTxt "$@" && exitCode=$?
+    queryTxt "$@"; exitCode=$?
 fi
-(( stats == 1 )) && { printf -- "-%.0s" $(seq 1 $(tput cols))};echo; txtStats; } || exit $exitCode
+(( stats == 1 )) && { printf -- "-%.0s" $(seq 1 $(tput cols))};echo; txtStats; }
+exit $exitCode
