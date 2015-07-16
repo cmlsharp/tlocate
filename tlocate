@@ -235,11 +235,12 @@ validateTxtFile(){
         isValid=1
     fi
     if (( update == 0 )) && (( isValid == 0 || checksumsMatch == 0 )); then
-        techoerr "$txtFile${validateMsg} failed verification. To fix this, execute \`${0##*/} $(
+          techoerr "$txtFile${validateMsg} failed verification. To fix this, execute \`${0##*/} $(
             if [[ $txtFile != /etc/${0##*/}.txt ]]; then \
             echo -n "--txtfile $txtFile";\
             fi\
             ) --update\`.\nWARNING: This will overwrite the contents of $txtFile\n" # This if statements prints out the appropriate update command if -t is supplied
+            (( isValid == 1 && stats == 1 )) && txtStats
         return 1 
     else
         return 0
@@ -248,7 +249,7 @@ validateTxtFile(){
 
 configFiles="/etc/${0##*/}.conf"
 txtFile="/etc/${0##*/}.txt"
-txtFileChecksumPath="/etc/.${0##*/}.chksum"
+txtFileChecksumPath="/etc/.${0##*/}.checksum"
 date="$(date "+#%D at %l:%M %p" | tr -s ' ' ' ')"
 
 noRegex=0
@@ -263,6 +264,7 @@ customTestCount=0
 noChecksum=0
 doTest=0
 checksumsMatch=0
+validationFailed=0
 shaAlgorithm='1'
 findBasename=0
 [[ -t 1 ]] && quiet=0 || quiet=1
@@ -347,7 +349,7 @@ while true; do
        -p|--pretend)showCmd=1; quiet=1;;
        -n|--noregex) noRegex=1;;
        -S|--statistics) stats=1;;
-       -0|--null)nullCmd=" | tr '\n' '\x00'" ;; 
+       -0|--null)quiet=1;nullCmd=" | tr '\n' '\x00'" ;; 
        -b|--basename) findBasename=1;;
        -w|--wholename)findWholename=1;;
        -o|--or) testCmd+="|| ";;
@@ -393,18 +395,20 @@ done
 sanityChecks
 if [[ -f "$txtFile" ]]; then
     getChecksum
-    validateTxtFile
+    validateTxtFile || exit
 fi
 
 if (( update == 1 )); then 
-    updateTxt; exitCode=$?
+    updateTxt
+    exitCode=$?
     (( stats == 1 )) && getChecksum
 elif (( stats == 1 )) && (( $# == 0 )); then
     txtStats
     exit 0
 else
     (( stats == 1 )) && quiet=1
-    queryTxt "$@"; exitCode=$?
+    queryTxt "$@"
+    exitCode=$?
 fi
-(( stats == 1 )) && { printf -- "-%.0s" $(seq 1 $(tput cols))};echo; txtStats; }
+(( stats == 1 )) && { printf -- "-%.0s" $(seq 1 $(tput cols)) ;echo; txtStats; }
 exit $exitCode
