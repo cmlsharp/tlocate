@@ -59,8 +59,8 @@ updateTxt(){
     (( quiet == 0 )) && techo "Indexing files..."
     (( showCmd == 1 )) && { echo "$wholeCmd"; return 0; } || eval "$wholeCmd"
     if type setfattr > /dev/null; then
-        eval "${sudoCmd}setfattr -n user.tlocate.checksum -v '$(shasum -a $shaAlgorithm "$txtFile" | awk '{print $1}')' $txtFile"
-        eval "${sudoCmd}setfattr -n user.tlocate.checksum.sha_algorithm -v '$shaAlgorithm' $txtFile"
+        eval "${sudoCmd}setfattr -n user.${0##*/}.checksum -v '$(shasum -a $shaAlgorithm "$txtFile" | awk '{print $1}')' $txtFile"
+        eval "${sudoCmd}setfattr -n user.${0##*/}.checksum.sha_algorithm -v '$shaAlgorithm' $txtFile"
     else
         eval "shasum -a $shaAlgorithm '$txtFile' | awk '{print $1}' | ${sudoCmd}tee '$txtFileChecksumPath'"
         eval "echo $shaAlgorithm | ${sudoCmd}tee -a '$txtFileChecksumPath'"
@@ -216,8 +216,8 @@ sanityChecks(){
 
 getChecksum(){
     if type setfattr > /dev/null; then
-        txtFileChecksum=$(getfattr -n user.tlocate.checksum --only-values $txtFile 2>/dev/null; echo )
-        txtFileChecksumType=$(getfattr -n user.tlocate.checksum.sha_algorithm --only-values $txtFile 2>/dev/null; echo)
+        txtFileChecksum=$(getfattr -n user.${0##*/}.checksum --only-values $txtFile 2>/dev/null; echo )
+        txtFileChecksumType=$(getfattr -n user.${00#*/}.checksum.sha_algorithm --only-values $txtFile 2>/dev/null; echo)
     else
         txtFileChecksum=$(head -n1 "$txtFileChecksumPath" 2>/dev/null)
         txtFileChecksumType=$(head -n2 "$txtFileChecksumPath" 2>/dev/null | tail -n1)
