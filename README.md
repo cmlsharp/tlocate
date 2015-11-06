@@ -31,5 +31,4 @@ mlocate rewritten in bash with a text file instead of a database
  * Updating text file is not separate command. `tlocate -u` is the equivalent `updatedb`
  * `locate --nofolow` is equivalent to `tlocate --existing --or --links`
  * Regexes are default but can be disabled with `-x/--noregex`
- * `--basename` requires regexes (see above)
  * Configuration files are very similar but entries resemble bash arrays
